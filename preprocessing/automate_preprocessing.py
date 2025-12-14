@@ -1,101 +1,109 @@
 import os
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
-# ===== CONFIG  =====
-CATEGORICAL_COLS = [
-    "Gender", "Married", "Dependents",
-    "Education", "Self_Employed", "Property_Area"
-]
+# =========================
+# LOAD DATA 
+# =========================
+def load_data():
+    """
+    Load raw dataset from LoanDetection_raw folder
+    Path dibuat dinamis agar aman di local & GitHub Actions
+    """
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-NUMERICAL_COLS = [
-    "ApplicantIncome", "CoapplicantIncome",
-    "LoanAmount", "Loan_Amount_Term", "Credit_History"
-]
+    raw_path = os.path.join(
+        base_dir,
+        "LoanDetection_raw",
+        "LoanPrediction_raw.csv"
+    )
 
-TARGET_COL = "Loan_Status"
-ID_COL = "Loan_ID"
+    if not os.path.exists(raw_path):
+        raise FileNotFoundError(f"Dataset not found at {raw_path}")
 
-OUTLIER_COLS = ["ApplicantIncome", "CoapplicantIncome", "LoanAmount"]
-
-
-def load_data(path: str) -> pd.DataFrame:
-    return pd.read_csv(path)
-
-
-def drop_id(df: pd.DataFrame) -> pd.DataFrame:
-    if ID_COL in df.columns:
-        df = df.drop(columns=[ID_COL])
-    return df
+    return pd.read_csv(raw_path)
 
 
-def handle_missing_values(df: pd.DataFrame) -> pd.DataFrame:
-    for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = df[col].fillna(df[col].mode()[0])
-        else:
-            df[col] = df[col].fillna(df[col].median())
-    return df
+# =========================
+# PREPROCESSING
+# =========================
+def preprocess_data(df):
+    """
+    Preprocessing sesuai notebook:
+    - Drop Loan_ID
+    - Encode target
+    - One-hot encoding categorical features
+    - Scaling numeric features
+    """
 
+    # Drop ID column
+    if "Loan_ID" in df.columns:
+        df = df.drop(columns=["Loan_ID"])
 
-def handle_outlier_iqr_clip(df: pd.DataFrame) -> pd.DataFrame:
-    for col in OUTLIER_COLS:
-        if col not in df.columns:
-            continue
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
-        iqr = q3 - q1
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-        df[col] = df[col].clip(lower, upper)
-    return df
+    # Encode target (Y/N -> 1/0)
+    df["Loan_Status"] = df["Loan_Status"].map({"Y": 1, "N": 0})
 
+    # Categorical features (encode, NOT scale)
+    categorical_cols = [
+        "Gender",
+        "Married",
+        "Education",
+        "Self_Employed",
+        "Property_Area"
+    ]
 
-def encode_target(df: pd.DataFrame) -> pd.DataFrame:
-    if TARGET_COL in df.columns:
-        df[TARGET_COL] = df[TARGET_COL].map({"N": 0, "Y": 1})
-    return df
+    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
+    # Numeric features (scale)
+    numeric_cols = [
+        "ApplicantIncome",
+        "CoapplicantIncome",
+        "LoanAmount",
+        "Loan_Amount_Term",
+        "Credit_History"
+    ]
 
-def encode_categorical_features(df: pd.DataFrame) -> pd.DataFrame:
-    le = LabelEncoder()
-    for col in CATEGORICAL_COLS:
-        if col in df.columns:
-            df[col] = le.fit_transform(df[col])
-    return df
-
-
-def scale_numerical_features(df: pd.DataFrame) -> pd.DataFrame:
     scaler = StandardScaler()
-    cols_to_scale = [c for c in NUMERICAL_COLS if c in df.columns]
-    df[cols_to_scale] = scaler.fit_transform(df[cols_to_scale])
+    df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+
     return df
 
 
-def save_data(df: pd.DataFrame, output_path: str) -> None:
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+# =========================
+# SAVE OUTPUT
+# =========================
+def save_data(df):
+    """
+    Save cleaned dataset ke folder preprocessing
+    """
+    output_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "LoanDetection_preprocessing"
+    )
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(
+        output_dir,
+        "LoanPrediction_preprocessing.csv"
+    )
+
     df.to_csv(output_path, index=False)
 
+    print(f"Preprocessing completed. File saved at: {output_path}")
 
+
+# =========================
+# MAIN PIPELINE
+# =========================
 def main():
-    input_path = "/Users/zakialfadilah/Eksperimen_SML_MuhammadZakiAlfadilah/LoanDetection_raw/LoanPrediction_raw.csv"
-    output_path = "/Users/zakialfadilah/Eksperimen_SML_MuhammadZakiAlfadilah/preprocessing/LoanDetection_preprocessing/LoanPrediction_preprocessing.csv"
-
-    df = load_data(input_path)
-    df = drop_id(df)
-    df = handle_missing_values(df)
-    df = handle_outlier_iqr_clip(df)
-    df = encode_target(df)
-    df = encode_categorical_features(df)
-    df = scale_numerical_features(df)
-
-    # validasi 
-    if df[TARGET_COL].isna().any():
-        raise ValueError("Target masih ada NaN setelah encoding. Cek nilai target selain 'Y'/'N'.")
-
-    save_data(df, output_path)
-    print(f"Preprocessing selesai. Output: {output_path}")
+    df = load_data()
+    df_clean = preprocess_data(df)
+    save_data(df_clean)
 
 
+# =========================
+# ENTRY POINT
+# =========================
 if __name__ == "__main__":
     main()
